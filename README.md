@@ -1,82 +1,82 @@
 # StockManager Pro
 
-> Functional preview of a web-based inventory management system built for enterprise environments. Runs entirely locally via a lightweight Python HTTP server — no cloud, no database, no installation required.
+> Preview funcional de um sistema web de gerenciamento de estoque empresarial. Roda completamente de forma local via um servidor Python leve — sem nuvem, sem banco de dados, sem instalação.
 
 ![Stack](https://img.shields.io/badge/stack-HTML%20%7C%20Vanilla%20JS%20%7C%20Python%203-4caf50?style=flat-square)
-![Status](https://img.shields.io/badge/status-functional%20preview-e67e22?style=flat-square)
-![License](https://img.shields.io/badge/license-MIT-3498db?style=flat-square)
+![Status](https://img.shields.io/badge/status-preview%20funcional-e67e22?style=flat-square)
+![Licença](https://img.shields.io/badge/licen%C3%A7a-MIT-3498db?style=flat-square)
 
 ---
 
-## Overview
+## Visão Geral
 
-StockManager Pro is a single-file web application that reads and writes directly to `.xlsx` spreadsheets stored on a local or shared network drive. It was built for teams that need a quick, portable inventory solution without setting up a database or paying for SaaS tools.
-
----
-
-## Features
-
-- **Multi-sheet inventory** — manage multiple units, locations, or categories across two spreadsheets
-- **Global search** — search across all sheets simultaneously with multi-term support (use `;` as separator)
-- **Smart transfer** — move items between sheets with automatic field mapping
-- **Column filters** — filter by any column with persistent state (saved when navigating away)
-- **Alphabetical sorting** — click any column header to sort; state is preserved per sheet
-- **PDF & DOCX reports** — generate formatted reports from any filtered view
-- **Audit logs** — every action is logged with timestamp and exportable to `.xlsx`
-- **Row tagging** — pin rows to top, assign colors, and mark storage location (Estoque A / Estoque B)
-- **Expandable OBS field** — long observation notes collapse by default and expand on click
-- **Date formatting** — Excel serial dates (e.g. `46150`) are automatically converted to `DD/MM/YYYY`
-- **Column management** — add, remove, reorder, and rename columns on any sheet
-- **Auto-save** — changes are saved back to the spreadsheet automatically via the local server
+O StockManager Pro é uma aplicação web em arquivo único que lê e escreve diretamente em planilhas `.xlsx` armazenadas em disco local ou unidade de rede compartilhada. Foi desenvolvido para equipes que precisam de uma solução de inventário portátil e rápida, sem necessidade de configurar banco de dados ou pagar por ferramentas SaaS.
 
 ---
 
-## Project Structure
+## Funcionalidades
+
+- **Inventário multi-planilha** — gerencie unidades, locais e categorias em duas planilhas separadas
+- **Busca global** — pesquise em todas as abas simultaneamente com suporte a múltiplos termos (separados por `;`)
+- **Transferência inteligente** — mova itens entre abas com preenchimento automático dos campos compatíveis
+- **Filtros por coluna** — filtre por qualquer campo com estado persistente (mantido ao navegar entre abas)
+- **Ordenação alfabética** — clique em qualquer cabeçalho de coluna para ordenar; estado salvo por aba
+- **Relatórios PDF e DOCX** — gere relatórios formatados a partir de qualquer visualização filtrada
+- **Logs de auditoria** — cada ação é registrada com data/hora e exportável para `.xlsx`
+- **Marcação de linhas** — fixe linhas no topo, atribua cores e marque localização de estoque (Estoque A / Estoque B)
+- **Campo OBS expansível** — observações longas ficam recolhidas e expandem ao clicar
+- **Formatação de datas** — datas seriais do Excel (ex: `46150`) convertidas automaticamente para `DD/MM/AAAA`
+- **Gerenciamento de colunas** — adicione, remova, reordene e renomeie colunas de qualquer aba
+- **Salvar automático** — alterações são salvas de volta na planilha automaticamente via servidor local
+
+---
+
+## Estrutura do Projeto
 
 ```
 📁 StockManager_Pro/
-  ├── StockManager_Pro.html     # Full application (single file)
-  ├── server_commercial.py      # Lightweight Python HTTP server
-  ├── iniciar_commercial.bat    # Windows launcher
-  ├── unidades.xlsx             # Spreadsheet: units / locations
-  └── categorias.xlsx           # Spreadsheet: inventory categories
+  ├── StockManager_Pro.html       # Aplicação completa (arquivo único)
+  ├── server_commercial.py        # Servidor HTTP Python leve
+  ├── iniciar_commercial.bat      # Iniciador para Windows
+  ├── unidades.xlsx               # Planilha: unidades / locais
+  └── categorias.xlsx             # Planilha: categorias do inventário
 ```
 
 ---
 
-## Getting Started
+## Como Usar
 
-### Requirements
+### Requisitos
 
-- Python 3.x (no extra packages needed)
-- A modern browser (Chrome, Edge, Firefox)
+- Python 3.x (sem pacotes extras)
+- Navegador moderno (Chrome, Edge ou Firefox)
 
-### Running
+### Executando
 
-1. Clone or download this repository
-2. Place your spreadsheet files in the same folder (or use the provided examples)
-3. Double-click `iniciar_commercial.bat`
-4. The browser will open automatically at `http://localhost:8000`
+1. Clone ou baixe este repositório
+2. Coloque os arquivos de planilha na mesma pasta (ou use os exemplos fornecidos)
+3. Dê dois cliques em `iniciar_commercial.bat`
+4. O navegador abrirá automaticamente em `http://localhost:8000`
 
 ```bash
-# Or run manually:
+# Ou execute manualmente:
 python server_commercial.py
 ```
 
 ---
 
-## Spreadsheet Structure
+## Estrutura das Planilhas
 
 ### `unidades.xlsx`
-One sheet per unit or location. Each sheet contains:
+Uma aba por unidade ou local. Cada aba contém:
 
 | Equipamento | Modelo | Service Tag | Responsavel | Local | Obs |
 |---|---|---|---|---|---|
 
 ### `categorias.xlsx`
-One sheet per equipment category. Included by default:
+Uma aba por categoria de equipamento. Incluídas por padrão:
 
-| Sheet | Key Columns |
+| Aba | Colunas Principais |
 |---|---|
 | Computadores | MODELO / SERVICE TAG / NUMERO CHAMADO / OBS |
 | Notebooks | MODELO / SERVICE TAG / NUMERO CHAMADO / OBS |
@@ -88,51 +88,51 @@ One sheet per equipment category. Included by default:
 | Defeito | STATUS / CHAMADO / SERVICE TAG / MODELO / TIPO / OBS |
 | ENVIADO_PARA | NOME DO EQUIPAMENTO / MODELO / SERVICE TAG / DATA / CHAMADO / OBS |
 
-You can rename, add, or remove sheets directly from the `[abas]` panel inside the app.
+Você pode renomear, adicionar ou remover abas diretamente pelo painel `[abas]` dentro do sistema.
 
 ---
 
-## Column Presets
+## Colunas Padronizadas
 
-When creating or editing sheets, columns are selected from a standardized list:
+Ao criar ou editar abas, as colunas são selecionadas a partir de uma lista padronizada:
 
 `MODELO` `EQUIPAMENTO` `GUICHE` `IMEI` `IMEI/SERVICE TAG` `SERVICE TAG` `NUMERO SERIE` `OBS` `RESPONSÁVEL` `DATA` `DATA DEPOSITO` `DATA ESTOQUE` `EMPRESA` `PLACA VIATURA` `NUMERO CHAMADO` `IP`
 
 ---
 
-## Tech Stack
+## Tecnologias
 
-| Layer | Technology |
+| Camada | Tecnologia |
 |---|---|
-| Frontend | HTML5 + Vanilla JavaScript |
-| Server | Python 3 `http.server` |
-| Spreadsheet I/O | [SheetJS (XLSX.js) 0.18.5](https://sheetjs.com/) |
-| PDF generation | [jsPDF 2.5.1](https://github.com/parallax/jsPDF) + [jsPDF-AutoTable](https://github.com/simonbengtsson/jsPDF-AutoTable) |
-| DOCX generation | [docx 7.8.2](https://github.com/dolanmiu/docx) |
+| Frontend | HTML5 + JavaScript puro |
+| Servidor | Python 3 `http.server` |
+| Leitura/escrita de planilhas | [SheetJS (XLSX.js) 0.18.5](https://sheetjs.com/) |
+| Geração de PDF | [jsPDF 2.5.1](https://github.com/parallax/jsPDF) + [jsPDF-AutoTable](https://github.com/simonbengtsson/jsPDF-AutoTable) |
+| Geração de DOCX | [docx 7.8.2](https://github.com/dolanmiu/docx) |
 
 ---
 
-## Limitations
+## Limitações
 
-- **Single user** — no real-time sync between multiple users; last write wins
-- **No authentication** — anyone with network access to port 8000 can read/write
-- **File size** — performance may degrade with very large spreadsheets (1000+ rows per sheet)
-- **Local network only** — not designed for internet-facing deployment
+- **Usuário único** — sem sincronização em tempo real entre múltiplos usuários; o último a salvar prevalece
+- **Sem autenticação** — qualquer pessoa com acesso à porta 8000 na rede pode ler e escrever
+- **Tamanho do arquivo** — o desempenho pode cair com planilhas muito grandes (acima de 1000 linhas por aba)
+- **Somente rede local** — não foi projetado para exposição à internet
 
-> ⚠️ This is a **functional preview**, not a production-ready system. Designed for internal validation, small teams, and stakeholder demonstration.
-
----
-
-## Roadmap
-
-- [ ] Multi-user conflict detection
-- [ ] QR code label printing
-- [ ] Barcode scanner input support
-- [ ] Dark/light theme toggle
-- [ ] CSV import
+> ⚠️ Este é um **preview funcional**, não um sistema pronto para produção. Desenvolvido para validação interna, equipes pequenas e demonstração para stakeholders.
 
 ---
 
-## License
+## Melhorias Planejadas
 
-MIT — free to use, modify, and distribute.
+- [ ] Detecção de conflito entre múltiplos usuários
+- [ ] Impressão de etiquetas com QR Code
+- [ ] Suporte a entrada via leitor de código de barras
+- [ ] Importação de CSV
+- [ ] Alternância entre tema claro e escuro
+
+---
+
+## Licença
+
+MIT — livre para usar, modificar e distribuir.
