@@ -6,21 +6,16 @@ import glob
 
 PORT = 8000
 DIR  = os.path.dirname(os.path.abspath(__file__))
-ALLOWED_SAVE = ['inventario.xlsx', 'Oso_inventario.ods', 'Oso_inventario.xlsx']
+ALLOWED_SAVE = ['unidades.xlsx', 'categorias.xlsx', 'categorias.ods']
 
-def find_oso_file():
-    # Try exact names first
-    for name in ['Oso_inventario.ods','Oso_inventario.xlsx',
-                 'oso_inventario.ods','oso_inventario.xlsx',
-                 'OSO_INVENTARIO.ODS','OSO_INVENTARIO.XLSX']:
-        full = os.path.join(DIR, name)
-        if os.path.exists(full):
-            return name, full
-    # Wildcard: any file containing 'inventario' or 'OSORIO' (case insensitive)
+def find_cat_file():
+    for name in ['categorias.xlsx','categorias.ods']:
+        if os.path.exists(os.path.join(DIR, name)):
+            return name, os.path.join(DIR, name)
     for f in os.listdir(DIR):
         fl = f.lower()
-        if fl.endswith(('.ods','.xlsx')) and f.lower() != 'inventario.xlsx':
-            if 'inventario' in fl or 'osorio' in fl or 'oso' in fl:
+        if fl.endswith(('.ods','.xlsx')) and f.lower() not in ('unidades.xlsx',):
+            if 'categoria' in fl or 'estoque' in fl or 'inventario' in fl:
                 return f, os.path.join(DIR, f)
     return None, None
 
@@ -30,18 +25,16 @@ class Handler(http.server.SimpleHTTPRequestHandler):
 
     def do_GET(self):
         path = self.path.split('?')[0].lstrip('/')
-
-        # Diagnostic endpoint
         if path == 'check':
             files = sorted(os.listdir(DIR))
             sheets = [f for f in files if f.endswith(('.xlsx','.ods'))]
-            oso_name, _ = find_oso_file()
+            cat_name, _ = find_cat_file()
             result = {
                 'dir': DIR,
                 'spreadsheets': sheets,
-                'inventario_found': os.path.exists(os.path.join(DIR,'inventario.xlsx')),
-                'oso_found': oso_name is not None,
-                'oso_detected_as': oso_name or 'NOT FOUND',
+                'unidades_found': os.path.exists(os.path.join(DIR,'unidades.xlsx')),
+                'categorias_found': cat_name is not None,
+                'categorias_detected_as': cat_name or 'NOT FOUND',
             }
             body = json.dumps(result, ensure_ascii=False).encode('utf-8')
             self.send_response(200)
@@ -51,25 +44,23 @@ class Handler(http.server.SimpleHTTPRequestHandler):
             self.wfile.write(body)
             return
 
-        # Case-insensitive serving of Oso_inventario
-        if path.lower().startswith('oso_inventario'):
-            oso_name, oso_path = find_oso_file()
-            if oso_name and oso_path:
+        if path.lower().startswith('categorias'):
+            cat_name, cat_path = find_cat_file()
+            if cat_name and cat_path:
                 try:
-                    with open(oso_path,'rb') as f:
+                    with open(cat_path,'rb') as f:
                         data = f.read()
-                    ctype = 'application/vnd.oasis.opendocument.spreadsheet' if oso_path.endswith('.ods') else \
+                    ctype = 'application/vnd.oasis.opendocument.spreadsheet' if cat_path.endswith('.ods') else \
                             'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
                     self.send_response(200)
                     self.send_header('Content-Type', ctype)
                     self.send_header('Content-Length', len(data))
                     self.end_headers()
                     self.wfile.write(data)
-                    print('  [LIDO] %s (%d KB)' % (oso_name, len(data)//1024))
+                    print('  [LIDO] %s (%d KB)' % (cat_name, len(data)//1024))
                     return
                 except Exception as e:
-                    print('  [ERRO ao ler %s]: %s' % (oso_name, e))
-
+                    print('  [ERRO ao ler %s]: %s' % (cat_name, e))
         super().do_GET()
 
     def do_POST(self):
@@ -80,10 +71,10 @@ class Handler(http.server.SimpleHTTPRequestHandler):
                 data   = json.loads(body)
                 b64    = data.get('data', '')
                 fname  = os.path.basename(data.get('filename', ''))
-                oso_name, _ = find_oso_file()
+                cat_name, _ = find_cat_file()
                 allowed = ALLOWED_SAVE[:]
-                if oso_name and oso_name not in allowed:
-                    allowed.append(oso_name)
+                if cat_name and cat_name not in allowed:
+                    allowed.append(cat_name)
                 if fname not in allowed:
                     self._respond(403, json.dumps({"error":"not allowed","allowed":allowed}))
                     return
@@ -110,35 +101,28 @@ class Handler(http.server.SimpleHTTPRequestHandler):
     def log_message(self, fmt, *args):
         status = str(args[1]) if len(args)>1 else ''
         path   = str(args[0]) if args else ''
-        if status in ('200','304'):
-            return
-        if status == '404' and ('favicon' in path or 'oso_inventario' in path.lower()):
-            return
+        if status in ('200','304'): return
+        if status == '404' and ('favicon' in path or 'categorias' in path.lower()): return
         super().log_message(fmt, *args)
 
     def log_error(self, fmt, *args):
         msg = (fmt % args) if args else str(fmt)
-        if 'favicon' in msg.lower() or 'oso_inventario' in msg.lower():
-            return
+        if 'favicon' in msg.lower() or 'categorias' in msg.lower(): return
         super().log_error(fmt, *args)
 
 os.chdir(DIR)
 print()
 print('  ============================================')
-print('   BD Fields Osorio - Servidor rodando')
+print('   StockManager Pro - Servidor rodando')
 print('  ============================================')
 print('  Acesse : http://localhost:%d' % PORT)
 print('  Pasta  : %s' % DIR)
 print()
-
-inv_ok  = os.path.exists(os.path.join(DIR,'inventario.xlsx'))
-oso_nm, _ = find_oso_file()
-print('  inventario.xlsx : %s' % ('ENCONTRADO' if inv_ok else 'NAO ENCONTRADO'))
-print('  Oso_inventario  : %s' % (oso_nm if oso_nm else 'NAO ENCONTRADO'))
+inv_ok  = os.path.exists(os.path.join(DIR,'unidades.xlsx'))
+cat_nm, _ = find_cat_file()
+print('  unidades.xlsx : %s' % ('ENCONTRADO' if inv_ok else 'NAO ENCONTRADO'))
+print('  categorias    : %s' % (cat_nm if cat_nm else 'NAO ENCONTRADO'))
 print()
-if not inv_ok or not oso_nm:
-    print('  ATENCAO: Arquivos em falta! Verifique a pasta acima.')
-    print()
 print('  Diagnostico: http://localhost:%d/check' % PORT)
 print('  Para encerrar: feche esta janela')
 print('  ============================================')
