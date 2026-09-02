@@ -1,0 +1,30 @@
+name: Sugerir melhoria
+description: Proponha uma evolução alinhada às regras de negócio.
+title: "[Melhoria]: "
+labels: [enhancement]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problema operacional
+      description: Qual situação real precisa ser resolvida?
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Resultado esperado
+    validations:
+      required: true
+  - type: dropdown
+    id: profile
+    attributes:
+      label: Perfil principal
+      options: [Operador, Gestor, Administrador, Todos]
+    validations:
+      required: true
+  - type: textarea
+    id: audit
+    attributes:
+      label: Impacto em autorização e auditoria
+      description: Informe quem executa, quem aprova e o que precisa ser rastreado.

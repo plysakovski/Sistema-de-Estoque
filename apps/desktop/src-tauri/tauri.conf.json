@@ -1,0 +1,48 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "StockManager Pro",
+  "version": "1.8.1",
+  "identifier": "br.com.stockmanager.desktop",
+  "build": {
+    "beforeDevCommand": "pnpm dev",
+    "devUrl": "http://localhost:5173",
+    "beforeBuildCommand": "node_modules\\.bin\\tsc.cmd -b && node_modules\\.bin\\vite.cmd build",
+    "frontendDist": "../dist"
+  },
+  "app": {
+    "windows": [
+      {
+        "label": "main",
+        "title": "StockManager Pro",
+        "width": 1440,
+        "height": 900,
+        "minWidth": 960,
+        "minHeight": 640,
+        "resizable": true,
+        "fullscreen": false,
+        "center": true
+      }
+    ],
+    "security": {
+      "csp": "default-src 'self'; img-src 'self' asset: data:; style-src 'self' 'unsafe-inline'; connect-src ipc: http://ipc.localhost"
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": ["nsis"],
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/icon.icns",
+      "icons/icon.ico"
+    ],
+    "category": "Business",
+    "shortDescription": "Gestão local de estoque e ativos de TI",
+    "longDescription": "Controle de itens, movimentações, unidades e auditoria com banco local SQLite.",
+    "windows": {
+      "wix": { "language": ["pt-BR"] },
+      "nsis": { "displayLanguageSelector": false, "languages": ["PortugueseBR"] }
+    }
+  }
+}

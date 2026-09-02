@@ -1,0 +1,40 @@
+name: Relatar falha
+description: Informe um comportamento incorreto sem incluir dados sensíveis.
+title: "[Bug]: "
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: Para vulnerabilidades, use o canal privado descrito em SECURITY.md.
+  - type: input
+    id: version
+    attributes:
+      label: Versão
+      placeholder: 1.8.1
+    validations:
+      required: true
+  - type: dropdown
+    id: profile
+    attributes:
+      label: Perfil utilizado
+      options: [Operador, Gestor, Administrador, Não se aplica]
+    validations:
+      required: true
+  - type: textarea
+    id: description
+    attributes:
+      label: O que aconteceu?
+      description: Descreva o resultado observado e o esperado.
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Como reproduzir
+      placeholder: Liste os passos usando somente dados fictícios.
+    validations:
+      required: true
+  - type: textarea
+    id: evidence
+    attributes:
+      label: Evidências sem dados sensíveis
