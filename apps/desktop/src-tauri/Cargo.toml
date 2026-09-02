@@ -1,0 +1,32 @@
+[package]
+name = "stockmanager-desktop"
+version = "1.8.1"
+description = "Sistema profissional de estoque e ativos de TI"
+authors = ["StockManager Pro"]
+edition = "2021"
+rust-version = "1.77.2"
+
+[lib]
+name = "stockmanager_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+argon2 = "0.5.3"
+calamine = "0.36.1"
+chrono = { version = "0.4", features = ["serde"] }
+log = "0.4"
+keyring = "4.2.0"
+parking_lot = "0.12"
+rand_core = { version = "0.6", features = ["getrandom"] }
+rusqlite = { version = "0.37", features = ["backup", "bundled-sqlcipher-vendored-openssl"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tauri = { version = "2", features = [] }
+tauri-plugin-log = "2"
+tauri-plugin-single-instance = "2"
+thiserror = "2"
+uuid = { version = "1", features = ["v4", "serde"] }
+zeroize = "1.8"

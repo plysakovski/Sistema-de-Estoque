@@ -1,0 +1,30 @@
+# Dependências e saídas de build
+**/node_modules/
+**/dist/
+**/target/
+**/target-sqlcipher/
+**/.tools/
+**/release/
+**/src-tauri/gen/
+
+# Dados locais e segredos
+*.db
+*.db-shm
+*.db-wal
+*.log
+.env
+.env.*
+!.env.example
+
+# Arquivos do sistema operacional e IDE
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+
+# Materiais locais de análise (não fazem parte da distribuição)
+/Relatorio_Avaliacao_StockManager_Pro.docx
+/auditoria_stockmanager/
+/.codex-audit-scan.py
+/.tmp-edge-profile/
+/.codex-capture-screens.mjs
