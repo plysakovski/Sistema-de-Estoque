@@ -10,9 +10,11 @@ use crate::{
         AuditFilterInput, AuditLogView, AuthStatus, AuthenticatedUser, BackupRecord,
         BootstrapAdminInput, ConfirmSensitiveActionInput, CreateAdjustmentRequestInput,
         CreateAssetIncidentInput, CreateItemInput, CreateMovementBatchInput, CreateMovementInput,
-        CreateReplenishmentRequestInput, CreateUserInput, Dashboard, InventoryItem, LocationOption,
-        LoginInput, MasterDataRecord, MovementBatchView, MovementView, RecoveryKeyReveal,
-        RecoveryKeyStatus, ReplenishmentRequestView, ResetUserPasswordInput, RestoreResult,
+        CreateReplenishmentRequestInput, CreateUserInput, Dashboard,
+        DispatchReplenishmentTransferInput, InventoryItem, LocationOption, LoginInput,
+        MasterDataRecord, MovementBatchView, MovementView, ReceiveReplenishmentTransferInput,
+        RecoveryKeyReveal, RecoveryKeyStatus, ReplenishmentRequestView,
+        ReplenishmentTransferShipmentView, ResetUserPasswordInput, RestoreResult,
         ReviewAdjustmentRequestInput, ReviewAssetIncidentInput, ReviewReplenishmentRequestInput,
         SaveMasterDataInput, UpdateAssetInput, UpdateUserInput, UserRole, UserView,
     },
@@ -406,6 +408,26 @@ pub fn review_replenishment_request(
 ) -> AppResult<ReplenishmentRequestView> {
     let actor = auth.require(&database, Permission::ReviewReplenishment)?;
     database.review_replenishment_request(input, &actor)
+}
+
+#[tauri::command]
+pub fn dispatch_replenishment_transfer(
+    input: DispatchReplenishmentTransferInput,
+    database: State<'_, Database>,
+    auth: State<'_, AuthService>,
+) -> AppResult<ReplenishmentTransferShipmentView> {
+    let actor = auth.require(&database, Permission::DispatchReplenishmentTransfer)?;
+    database.dispatch_replenishment_transfer(input, &actor)
+}
+
+#[tauri::command]
+pub fn receive_replenishment_transfer(
+    input: ReceiveReplenishmentTransferInput,
+    database: State<'_, Database>,
+    auth: State<'_, AuthService>,
+) -> AppResult<ReplenishmentTransferShipmentView> {
+    let actor = auth.require(&database, Permission::ReceiveReplenishmentTransfer)?;
+    database.receive_replenishment_transfer(input, &actor)
 }
 
 #[tauri::command]

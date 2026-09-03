@@ -27,12 +27,14 @@ pub enum Permission {
     ReadInventory,
     RequestAdjustment,
     RequestReplenishment,
+    ReceiveReplenishmentTransfer,
     RecordMovement,
     UpdateOperationalAssetStatus,
     ReportAssetIncident,
     ManageInventory,
     ReviewAdjustment,
     ReviewReplenishment,
+    DispatchReplenishmentTransfer,
     ReviewAssetIncident,
     ViewAudit,
     ManageOperations,
@@ -276,12 +278,14 @@ fn is_allowed(role: UserRole, permission: Permission) -> bool {
         Permission::ReadInventory
         | Permission::RequestAdjustment
         | Permission::RequestReplenishment
+        | Permission::ReceiveReplenishmentTransfer
         | Permission::RecordMovement
         | Permission::UpdateOperationalAssetStatus
         | Permission::ReportAssetIncident => true,
         Permission::ManageInventory
         | Permission::ReviewAdjustment
         | Permission::ReviewReplenishment
+        | Permission::DispatchReplenishmentTransfer
         | Permission::ReviewAssetIncident
         | Permission::ViewAudit
         | Permission::ManageOperations => matches!(role, UserRole::Manager | UserRole::Admin),

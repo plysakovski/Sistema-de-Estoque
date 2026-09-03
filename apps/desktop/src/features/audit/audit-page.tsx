@@ -6,8 +6,8 @@ import { formatDateTime } from "../../shared/format";
 import { AuditDetailsDialog } from "./audit-details-dialog";
 import { useAuditLogs } from "./use-audit";
 
-const actionLabels: Record<string, string> = { create: "Criação", update: "Alteração", activate: "Ativação", deactivate: "Desativação", entry: "Entrada", exit: "Saída", transfer: "Transferência", adjustment: "Ajuste" };
-const entityLabels: Record<string, string> = { product: "Produto", asset: "Ativo", stock: "Estoque", location: "Unidade", category: "Categoria" };
+const actionLabels: Record<string, string> = { create: "Criação", update: "Alteração", activate: "Ativação", deactivate: "Desativação", entry: "Entrada", exit: "Saída", transfer: "Transferência", adjustment: "Ajuste", dispatch_transfer: "Despacho de transferência", receive_transfer: "Recebimento de transferência" };
+const entityLabels: Record<string, string> = { product: "Produto", asset: "Ativo", stock: "Estoque", location: "Unidade", category: "Categoria", replenishment_transfer_shipment: "Despacho de transferência" };
 
 export function AuditPage() {
   const [search, setSearch] = useState("");

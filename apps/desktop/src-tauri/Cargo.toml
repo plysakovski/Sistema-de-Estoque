@@ -1,6 +1,6 @@
 [package]
 name = "stockmanager-desktop"
-version = "1.8.1"
+version = "1.9.0"
 description = "Sistema profissional de estoque e ativos de TI"
 authors = ["StockManager Pro"]
 edition = "2021"

@@ -75,6 +75,8 @@ pub fn run() {
             commands::create_replenishment_request,
             commands::list_replenishment_requests,
             commands::review_replenishment_request,
+            commands::dispatch_replenishment_transfer,
+            commands::receive_replenishment_transfer,
             commands::list_users,
             commands::create_user,
             commands::update_user,

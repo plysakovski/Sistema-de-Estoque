@@ -19,11 +19,13 @@ use crate::{
         AuditFilterInput, AuditLogView, AuthUserRecord, AuthenticatedUser, BackupRecord,
         CreateAdjustmentRequestInput, CreateAssetIncidentInput, CreateItemInput,
         CreateMovementBatchInput, CreateMovementInput, CreateReplenishmentRequestInput, Dashboard,
-        InventoryItem, LocationOption, LocationTotal, MasterDataRecord, MovementBatchView,
-        MovementView, RecoveryKeyStatus, ReplenishmentRequestItemView, ReplenishmentRequestView,
-        RestoreResult, ReviewAdjustmentRequestInput, ReviewAssetIncidentInput,
-        ReviewReplenishmentRequestInput, SaveMasterDataInput, UpdateAssetInput, UpdateUserInput,
-        UserRole, UserView,
+        DispatchReplenishmentTransferInput, InventoryItem, LocationOption, LocationTotal,
+        MasterDataRecord, MovementBatchView, MovementView, ReceiveReplenishmentTransferInput,
+        RecoveryKeyStatus, ReplenishmentRequestItemView, ReplenishmentRequestView,
+        ReplenishmentTransferShipmentItemView, ReplenishmentTransferShipmentView,
+        ReservedTransferAssetView, RestoreResult, ReviewAdjustmentRequestInput,
+        ReviewAssetIncidentInput, ReviewReplenishmentRequestInput, SaveMasterDataInput,
+        UpdateAssetInput, UpdateUserInput, UserRole, UserView,
     },
 };
 
@@ -33,6 +35,7 @@ const MIGRATION_0003: &str =
     include_str!("../migrations/0003_security_and_adjustment_requests.sql");
 const MIGRATION_0004: &str = include_str!("../migrations/0004_scopes_and_replenishment.sql");
 const MIGRATION_0005: &str = include_str!("../migrations/0005_batches_and_asset_incidents.sql");
+const MIGRATION_0006: &str = include_str!("../migrations/0006_two_step_transfers.sql");
 const ADMIN_ID: &str = "123e4567-e89b-42d3-a456-426614174000";
 
 #[derive(Clone, Copy)]
@@ -65,6 +68,7 @@ impl Database {
         apply_migration(&connection, 3, MIGRATION_0003)?;
         apply_migration(&connection, 4, MIGRATION_0004)?;
         apply_migration(&connection, 5, MIGRATION_0005)?;
+        apply_migration(&connection, 6, MIGRATION_0006)?;
         if cfg!(debug_assertions) {
             seed_database(&connection)?;
         }
@@ -464,6 +468,7 @@ impl Database {
         Ok(user)
     }
 
+    #[allow(dead_code)]
     pub fn list_items(&self, search: &str) -> AppResult<Vec<InventoryItem>> {
         let connection = self.connection.lock();
         query_items(&connection, search, false)
@@ -630,11 +635,11 @@ impl Database {
         validate_asset_update(&input)?;
         let mut connection = self.connection.lock();
         let transaction = connection.transaction()?;
-        let current: (String, String, String) = transaction
+        let current: (String, String, String, Option<String>) = transaction
             .query_row(
-                "SELECT product_id, location_id, status FROM assets WHERE id = ?1",
+                "SELECT product_id, location_id, status, in_transit_shipment_id FROM assets WHERE id = ?1",
                 [&input.id],
-                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
             )
             .optional()?
             .ok_or_else(|| AppError::NotFound(input.id.clone()))?;
@@ -642,6 +647,12 @@ impl Database {
         if current.2 == "disposed" {
             return Err(AppError::Validation(
                 "Um ativo baixado não pode ser alterado".into(),
+            ));
+        }
+        if current.3.is_some() {
+            return Err(AppError::Conflict(
+                "O ativo está em trânsito e só pode ser alterado pelo recebimento da transferência"
+                    .into(),
             ));
         }
         ensure_location(&transaction, &input.location_id)?;
@@ -1188,12 +1199,11 @@ impl Database {
                     [&item.product_id],
                     |row| row.get(0),
                 )?;
-                if serial_policy == "required"
-                    && item
-                        .serial_number
-                        .as_deref()
-                        .is_none_or(|value| value.trim().is_empty())
-                {
+                let serial_number_missing = match item.serial_number.as_deref() {
+                    Some(value) => value.trim().is_empty(),
+                    None => true,
+                };
+                if serial_policy == "required" && serial_number_missing {
                     return Err(AppError::Validation(
                         "Informe o número de série de cada ativo deste produto".into(),
                     ));
@@ -1248,7 +1258,6 @@ impl Database {
                 let changed = transaction.execute(
                     "UPDATE replenishment_request_items
                      SET received_quantity = received_quantity + ?3,
-                         status = CASE WHEN received_quantity + ?3 = purchase_quantity + transfer_quantity THEN 'fulfilled' ELSE 'in_fulfillment' END,
                          version = version + 1
                      WHERE request_id = ?1 AND product_id = ?2
                        AND received_quantity + ?3 <= purchase_quantity",
@@ -1260,15 +1269,7 @@ impl Database {
                     ));
                 }
             }
-            let pending: i64 = transaction.query_row(
-                "SELECT COUNT(*) FROM replenishment_request_items WHERE request_id = ?1 AND status <> 'fulfilled'",
-                [request_id],
-                |row| row.get(0),
-            )?;
-            transaction.execute(
-                "UPDATE replenishment_requests SET status = CASE WHEN ?2 = 0 THEN 'fulfilled' ELSE 'in_fulfillment' END, fulfilled_at = CASE WHEN ?2 = 0 THEN ?3 ELSE NULL END, version = version + 1 WHERE id = ?1",
-                params![request_id, pending, now],
-            )?;
+            refresh_replenishment_progress(&transaction, request_id, &now)?;
         }
 
         insert_audit(
@@ -1863,9 +1864,14 @@ impl Database {
              FROM replenishment_requests rr
              WHERE ?1 = 1
                 OR rr.requester_id = ?2
-                OR (?3 = 1 AND EXISTS(
+                OR EXISTS(
                     SELECT 1 FROM user_locations ul
                     WHERE ul.user_id = ?2 AND ul.location_id = rr.destination_location_id
+                )
+                OR (?3 = 1 AND EXISTS(
+                    SELECT 1 FROM replenishment_request_items rri
+                    JOIN user_locations ul ON ul.location_id = rri.source_location_id
+                    WHERE rri.request_id = rr.id AND ul.user_id = ?2
                 ))
              ORDER BY CASE rr.status WHEN 'pending' THEN 0 ELSE 1 END, rr.requested_at DESC",
         )?;
@@ -1960,11 +1966,6 @@ impl Database {
                 ));
             }
             if decision.transfer_quantity > 0 {
-                if tracking_type == "serialized" {
-                    return Err(AppError::Validation(
-                        "A transferência de produto serializado exige selecionar os ativos; use compra nesta etapa".into(),
-                    ));
-                }
                 let source = required_value(
                     &decision.source_location_id,
                     "Informe a unidade de origem da transferência",
@@ -1975,26 +1976,55 @@ impl Database {
                     ));
                 }
                 ensure_actor_location(&transaction, reviewer, source)?;
-                let (quantity, reserved): (i64, i64) = transaction
-                    .query_row(
-                        "SELECT quantity, reserved_quantity FROM stock_balances
+                if tracking_type == "quantity" {
+                    let (quantity, reserved): (i64, i64) = transaction
+                        .query_row(
+                            "SELECT quantity, reserved_quantity FROM stock_balances
+                             WHERE product_id = ?1 AND location_id = ?2",
+                            params![product_id, source],
+                            |row| Ok((row.get(0)?, row.get(1)?)),
+                        )
+                        .optional()?
+                        .unwrap_or((0, 0));
+                    if quantity - reserved < decision.transfer_quantity {
+                        return Err(AppError::Conflict(format!(
+                            "Saldo disponível insuficiente na origem para o item {}",
+                            decision.item_id
+                        )));
+                    }
+                    transaction.execute(
+                        "UPDATE stock_balances SET reserved_quantity = reserved_quantity + ?3, updated_at = ?4
                          WHERE product_id = ?1 AND location_id = ?2",
-                        params![product_id, source],
-                        |row| Ok((row.get(0)?, row.get(1)?)),
-                    )
-                    .optional()?
-                    .unwrap_or((0, 0));
-                if quantity - reserved < decision.transfer_quantity {
-                    return Err(AppError::Conflict(format!(
-                        "Saldo disponível insuficiente na origem para o item {}",
-                        decision.item_id
-                    )));
+                        params![product_id, source, decision.transfer_quantity, now],
+                    )?;
+                } else {
+                    let mut assets = transaction.prepare(
+                        "SELECT a.id FROM assets a
+                         WHERE a.product_id = ?1 AND a.location_id = ?2 AND a.status = 'available'
+                           AND a.in_transit_shipment_id IS NULL
+                           AND NOT EXISTS(SELECT 1 FROM replenishment_transfer_asset_reservations r WHERE r.asset_id = a.id)
+                         ORDER BY a.asset_tag LIMIT ?3",
+                    )?;
+                    let asset_ids = assets
+                        .query_map(
+                            params![product_id, source, decision.transfer_quantity],
+                            |row| row.get::<_, String>(0),
+                        )?
+                        .collect::<Result<Vec<_>, _>>()?;
+                    drop(assets);
+                    if asset_ids.len() != decision.transfer_quantity as usize {
+                        return Err(AppError::Conflict(format!(
+                            "Ativos disponíveis insuficientes na origem para o item {}",
+                            decision.item_id
+                        )));
+                    }
+                    for asset_id in asset_ids {
+                        transaction.execute(
+                            "INSERT INTO replenishment_transfer_asset_reservations(request_item_id, asset_id, reserved_at) VALUES (?1, ?2, ?3)",
+                            params![decision.item_id, asset_id, now],
+                        )?;
+                    }
                 }
-                transaction.execute(
-                    "UPDATE stock_balances SET reserved_quantity = reserved_quantity + ?3, updated_at = ?4
-                     WHERE product_id = ?1 AND location_id = ?2",
-                    params![product_id, source, decision.transfer_quantity, now],
-                )?;
             }
             let item_status = if approved == 0 {
                 "rejected"
@@ -2059,6 +2089,439 @@ impl Database {
         transaction.commit()?;
         drop(connection);
         self.get_replenishment_request(&input.id)
+    }
+
+    pub fn dispatch_replenishment_transfer(
+        &self,
+        input: DispatchReplenishmentTransferInput,
+        actor: &AuthenticatedUser,
+    ) -> AppResult<ReplenishmentTransferShipmentView> {
+        if actor.role == UserRole::Operator {
+            return Err(AppError::Forbidden(
+                "Somente gestores e administradores podem despachar transferências".into(),
+            ));
+        }
+        validate_transfer_dispatch(&input)?;
+        let mut connection = self.connection.lock();
+        let transaction = connection.transaction()?;
+        let (destination_id, request_status): (String, String) = transaction
+            .query_row(
+                "SELECT destination_location_id, status FROM replenishment_requests WHERE id = ?1",
+                [&input.request_id],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .optional()?
+            .ok_or_else(|| AppError::NotFound(input.request_id.clone()))?;
+        if !matches!(
+            request_status.as_str(),
+            "approved" | "partially_approved" | "in_fulfillment"
+        ) {
+            return Err(AppError::Conflict(
+                "A reposição não está disponível para despacho".into(),
+            ));
+        }
+
+        let now = Utc::now().to_rfc3339();
+        let shipment_id = Uuid::new_v4().to_string();
+        let batch_id = Uuid::new_v4().to_string();
+        let first_item = input
+            .items
+            .first()
+            .ok_or_else(|| AppError::Validation("O despacho está vazio".into()))?;
+        let source_id: String = transaction
+            .query_row(
+                "SELECT source_location_id FROM replenishment_request_items WHERE id = ?1 AND request_id = ?2",
+                params![first_item.request_item_id, input.request_id],
+                |row| row.get(0),
+            )
+            .optional()?
+            .ok_or_else(|| AppError::Validation("O primeiro item não possui uma origem válida".into()))?;
+        ensure_actor_location(&transaction, actor, &source_id)?;
+        transaction.execute(
+            "INSERT INTO replenishment_transfer_shipments(
+                id, request_id, source_location_id, destination_location_id, reference,
+                dispatch_note, status, dispatched_by, dispatched_at
+             ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, 'dispatched', ?7, ?8)",
+            params![
+                shipment_id,
+                input.request_id,
+                source_id,
+                destination_id,
+                input.reference.trim(),
+                input.note.trim(),
+                actor.id,
+                now
+            ],
+        )?;
+        transaction.execute(
+            "INSERT INTO movement_batches(id, kind, reference, note, replenishment_request_id, actor_id, occurred_at)
+             VALUES (?1, 'transfer', ?2, ?3, ?4, ?5, ?6)",
+            params![batch_id, input.reference.trim(), input.note.trim(), input.request_id, actor.id, now],
+        )?;
+        let mut total = 0_i64;
+        let mut seen_items = HashSet::new();
+        let mut seen_assets = HashSet::new();
+
+        for line in &input.items {
+            if !seen_items.insert(line.request_item_id.as_str()) || line.quantity <= 0 {
+                return Err(AppError::Validation(
+                    "Informe itens únicos e quantidades positivas no despacho".into(),
+                ));
+            }
+            let (product_id, tracking_type, source, transfer, received, in_transit):
+                (String, String, Option<String>, i64, i64, i64) = transaction
+                .query_row(
+                    "SELECT rri.product_id, p.tracking_type, rri.source_location_id,
+                            rri.transfer_quantity, rri.transfer_received_quantity, rri.transfer_in_transit_quantity
+                     FROM replenishment_request_items rri
+                     JOIN products p ON p.id = rri.product_id
+                     WHERE rri.id = ?1 AND rri.request_id = ?2",
+                    params![line.request_item_id, input.request_id],
+                    |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?, row.get(4)?, row.get(5)?)),
+                )
+                .optional()?
+                .ok_or_else(|| AppError::Validation("Um item não pertence à reposição".into()))?;
+            let source = source.ok_or_else(|| {
+                AppError::Conflict("O item não possui origem de transferência".into())
+            })?;
+            if source_id != source {
+                return Err(AppError::Validation(
+                    "Cada despacho deve conter itens de uma única unidade de origem".into(),
+                ));
+            }
+            ensure_actor_location(&transaction, actor, &source)?;
+            let remaining = transfer - received - in_transit;
+            if line.quantity > remaining {
+                return Err(AppError::Conflict(format!(
+                    "A quantidade despachada excede o saldo pendente do item {}",
+                    line.request_item_id
+                )));
+            }
+
+            if tracking_type == "quantity" {
+                if !line.asset_ids.is_empty() {
+                    return Err(AppError::Validation(
+                        "Produtos controlados por quantidade não aceitam ativos individuais".into(),
+                    ));
+                }
+                let (quantity, reserved): (i64, i64) = transaction
+                    .query_row(
+                        "SELECT quantity, reserved_quantity FROM stock_balances WHERE product_id = ?1 AND location_id = ?2",
+                        params![product_id, source],
+                        |row| Ok((row.get(0)?, row.get(1)?)),
+                    )
+                    .optional()?
+                    .unwrap_or((0, 0));
+                if quantity < line.quantity || reserved < line.quantity {
+                    return Err(AppError::Conflict(
+                        "O saldo reservado não está mais disponível para despacho".into(),
+                    ));
+                }
+                transaction.execute(
+                    "UPDATE stock_balances SET quantity = quantity - ?3, reserved_quantity = reserved_quantity - ?3, updated_at = ?4
+                     WHERE product_id = ?1 AND location_id = ?2",
+                    params![product_id, source, line.quantity, now],
+                )?;
+                let shipment_item_id = Uuid::new_v4().to_string();
+                transaction.execute(
+                    "INSERT INTO replenishment_transfer_shipment_items(id, shipment_id, request_item_id, product_id, quantity)
+                     VALUES (?1, ?2, ?3, ?4, ?5)",
+                    params![shipment_item_id, shipment_id, line.request_item_id, product_id, line.quantity],
+                )?;
+                let movement_id = Uuid::new_v4().to_string();
+                transaction.execute(
+                    "INSERT INTO stock_movements(id, product_id, kind, quantity, from_location_id, to_location_id, actor_id, note, occurred_at, batch_id)
+                     VALUES (?1, ?2, 'transfer', ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
+                    params![movement_id, product_id, line.quantity, source, destination_id, actor.id, input.note.trim(), now, batch_id],
+                )?;
+                insert_audit(
+                    &transaction,
+                    "dispatch_transfer",
+                    "stock",
+                    &product_id,
+                    Some(serde_json::json!({"quantity": quantity, "reservedQuantity": reserved})),
+                    Some(
+                        serde_json::json!({"quantity": quantity - line.quantity, "reservedQuantity": reserved - line.quantity, "inTransit": line.quantity}),
+                    ),
+                    &actor.id,
+                    &now,
+                )?;
+            } else {
+                if line.asset_ids.len() != line.quantity as usize {
+                    return Err(AppError::Validation(
+                        "Selecione exatamente os ativos serializados deste despacho".into(),
+                    ));
+                }
+                for asset_id in &line.asset_ids {
+                    if !seen_assets.insert(asset_id.as_str()) {
+                        return Err(AppError::Validation(
+                            "Há um ativo duplicado no despacho".into(),
+                        ));
+                    }
+                    let valid: bool = transaction.query_row(
+                        "SELECT EXISTS(
+                           SELECT 1 FROM assets a
+                           JOIN replenishment_transfer_asset_reservations r ON r.asset_id = a.id
+                           WHERE a.id = ?1 AND a.product_id = ?2 AND a.location_id = ?3
+                             AND a.status = 'available' AND a.in_transit_shipment_id IS NULL
+                             AND r.request_item_id = ?4
+                         )",
+                        params![asset_id, product_id, source, line.request_item_id],
+                        |row| row.get(0),
+                    )?;
+                    if !valid {
+                        return Err(AppError::Conflict(format!(
+                            "O ativo {asset_id} não está reservado ou disponível para este despacho"
+                        )));
+                    }
+                    transaction.execute(
+                        "UPDATE assets SET in_transit_shipment_id = ?2, updated_at = ?3 WHERE id = ?1",
+                        params![asset_id, shipment_id, now],
+                    )?;
+                    let shipment_item_id = Uuid::new_v4().to_string();
+                    transaction.execute(
+                        "INSERT INTO replenishment_transfer_shipment_items(id, shipment_id, request_item_id, product_id, asset_id, quantity)
+                         VALUES (?1, ?2, ?3, ?4, ?5, 1)",
+                        params![shipment_item_id, shipment_id, line.request_item_id, product_id, asset_id],
+                    )?;
+                    let movement_id = Uuid::new_v4().to_string();
+                    transaction.execute(
+                        "INSERT INTO stock_movements(id, product_id, asset_id, kind, quantity, from_location_id, to_location_id, actor_id, note, occurred_at, batch_id)
+                         VALUES (?1, ?2, ?3, 'transfer', 1, ?4, ?5, ?6, ?7, ?8, ?9)",
+                        params![movement_id, product_id, asset_id, source, destination_id, actor.id, input.note.trim(), now, batch_id],
+                    )?;
+                }
+            }
+            transaction.execute(
+                "UPDATE replenishment_request_items
+                 SET transfer_in_transit_quantity = transfer_in_transit_quantity + ?2,
+                     status = 'in_fulfillment', version = version + 1 WHERE id = ?1",
+                params![line.request_item_id, line.quantity],
+            )?;
+            total += line.quantity;
+        }
+        refresh_replenishment_progress(&transaction, &input.request_id, &now)?;
+        insert_audit(
+            &transaction,
+            "dispatch_transfer",
+            "replenishment_transfer_shipment",
+            &shipment_id,
+            None,
+            Some(
+                serde_json::json!({"requestId": input.request_id, "sourceLocationId": source_id, "destinationLocationId": destination_id, "reference": input.reference.trim(), "quantity": total}),
+            ),
+            &actor.id,
+            &now,
+        )?;
+        transaction.commit()?;
+        drop(connection);
+        self.get_replenishment_request(&input.request_id)?
+            .transfer_shipments
+            .into_iter()
+            .find(|shipment| shipment.id == shipment_id)
+            .ok_or_else(|| AppError::NotFound(shipment_id))
+    }
+
+    pub fn receive_replenishment_transfer(
+        &self,
+        input: ReceiveReplenishmentTransferInput,
+        actor: &AuthenticatedUser,
+    ) -> AppResult<ReplenishmentTransferShipmentView> {
+        validate_transfer_receipt(&input)?;
+        let mut connection = self.connection.lock();
+        let transaction = connection.transaction()?;
+        let (request_id, source_id, destination_id, status, version): (
+            String,
+            String,
+            String,
+            String,
+            i64,
+        ) = transaction
+            .query_row(
+                "SELECT request_id, source_location_id, destination_location_id, status, version
+                 FROM replenishment_transfer_shipments WHERE id = ?1",
+                [&input.shipment_id],
+                |row| {
+                    Ok((
+                        row.get(0)?,
+                        row.get(1)?,
+                        row.get(2)?,
+                        row.get(3)?,
+                        row.get(4)?,
+                    ))
+                },
+            )
+            .optional()?
+            .ok_or_else(|| AppError::NotFound(input.shipment_id.clone()))?;
+        if !matches!(status.as_str(), "dispatched" | "partially_received")
+            || version != input.version
+        {
+            return Err(AppError::Conflict(
+                "O despacho já foi concluído ou atualizado. Recarregue a lista".into(),
+            ));
+        }
+        ensure_actor_location(&transaction, actor, &destination_id)?;
+        let now = Utc::now().to_rfc3339();
+        let mut seen = HashSet::new();
+        let mut received_total = 0_i64;
+        let mut rejected_total = 0_i64;
+        for line in &input.items {
+            if !seen.insert(line.shipment_item_id.as_str())
+                || line.received_quantity < 0
+                || line.rejected_quantity < 0
+                || line.received_quantity + line.rejected_quantity <= 0
+            {
+                return Err(AppError::Validation(
+                    "Informe linhas válidas e únicas no recebimento".into(),
+                ));
+            }
+            if line.rejected_quantity > 0 && line.note.trim().chars().count() < 5 {
+                return Err(AppError::Validation(
+                    "Descreva a divergência dos itens recusados com pelo menos 5 caracteres".into(),
+                ));
+            }
+            let (request_item_id, product_id, asset_id, quantity, received, rejected):
+                (String, String, Option<String>, i64, i64, i64) = transaction
+                .query_row(
+                    "SELECT request_item_id, product_id, asset_id, quantity, received_quantity, rejected_quantity
+                     FROM replenishment_transfer_shipment_items WHERE id = ?1 AND shipment_id = ?2",
+                    params![line.shipment_item_id, input.shipment_id],
+                    |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?, row.get(4)?, row.get(5)?)),
+                )
+                .optional()?
+                .ok_or_else(|| AppError::Validation("Uma linha não pertence ao despacho".into()))?;
+            let processed = line.received_quantity + line.rejected_quantity;
+            if processed > quantity - received - rejected || (asset_id.is_some() && processed != 1)
+            {
+                return Err(AppError::Conflict(
+                    "A quantidade recebida excede o saldo em trânsito".into(),
+                ));
+            }
+            if let Some(asset_id) = asset_id.as_deref() {
+                if line.received_quantity == 1 {
+                    transaction.execute(
+                        "UPDATE assets SET location_id = ?2, in_transit_shipment_id = NULL, updated_at = ?3
+                         WHERE id = ?1 AND in_transit_shipment_id = ?4",
+                        params![asset_id, destination_id, now, input.shipment_id],
+                    )?;
+                    transaction.execute(
+                        "DELETE FROM replenishment_transfer_asset_reservations WHERE asset_id = ?1",
+                        [asset_id],
+                    )?;
+                } else {
+                    transaction.execute(
+                        "UPDATE assets SET in_transit_shipment_id = NULL, updated_at = ?2
+                         WHERE id = ?1 AND in_transit_shipment_id = ?3",
+                        params![asset_id, now, input.shipment_id],
+                    )?;
+                }
+            } else {
+                if line.received_quantity > 0 {
+                    let destination_before =
+                        get_balance(&transaction, &product_id, &destination_id)?;
+                    set_balance(
+                        &transaction,
+                        &product_id,
+                        &destination_id,
+                        destination_before + line.received_quantity,
+                        &now,
+                    )?;
+                }
+                if line.rejected_quantity > 0 {
+                    transaction.execute(
+                        "INSERT INTO stock_balances(product_id, location_id, quantity, reserved_quantity, updated_at)
+                         VALUES (?1, ?2, ?3, ?3, ?4)
+                         ON CONFLICT(product_id, location_id) DO UPDATE SET
+                           quantity = quantity + excluded.quantity,
+                           reserved_quantity = reserved_quantity + excluded.reserved_quantity,
+                           updated_at = excluded.updated_at",
+                        params![product_id, source_id, line.rejected_quantity, now],
+                    )?;
+                }
+            }
+            transaction.execute(
+                "UPDATE replenishment_transfer_shipment_items
+                 SET received_quantity = received_quantity + ?2,
+                     rejected_quantity = rejected_quantity + ?3,
+                     receipt_note = CASE WHEN trim(?4) = '' THEN receipt_note ELSE trim(?4) END
+                 WHERE id = ?1",
+                params![
+                    line.shipment_item_id,
+                    line.received_quantity,
+                    line.rejected_quantity,
+                    line.note
+                ],
+            )?;
+            transaction.execute(
+                "UPDATE replenishment_request_items
+                 SET transfer_in_transit_quantity = transfer_in_transit_quantity - ?2,
+                     transfer_received_quantity = transfer_received_quantity + ?3,
+                     transfer_rejected_quantity = transfer_rejected_quantity + ?4,
+                     version = version + 1 WHERE id = ?1",
+                params![
+                    request_item_id,
+                    processed,
+                    line.received_quantity,
+                    line.rejected_quantity
+                ],
+            )?;
+            received_total += line.received_quantity;
+            rejected_total += line.rejected_quantity;
+        }
+        let (remaining, rejected_all): (i64, i64) = transaction.query_row(
+            "SELECT COALESCE(SUM(quantity - received_quantity - rejected_quantity), 0),
+                    COALESCE(SUM(rejected_quantity), 0)
+             FROM replenishment_transfer_shipment_items WHERE shipment_id = ?1",
+            [&input.shipment_id],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )?;
+        let shipment_status = if remaining > 0 {
+            "partially_received"
+        } else if rejected_all > 0 {
+            "divergent"
+        } else {
+            "received"
+        };
+        let updated = transaction.execute(
+            "UPDATE replenishment_transfer_shipments
+             SET receipt_reference = ?2, receipt_note = ?3, status = ?4, received_by = ?5,
+                 received_at = ?6, version = version + 1
+             WHERE id = ?1 AND version = ?7",
+            params![
+                input.shipment_id,
+                input.reference.trim(),
+                input.note.trim(),
+                shipment_status,
+                actor.id,
+                now,
+                input.version
+            ],
+        )?;
+        if updated != 1 {
+            return Err(AppError::Conflict(
+                "O despacho foi recebido por outro usuário".into(),
+            ));
+        }
+        refresh_replenishment_progress(&transaction, &request_id, &now)?;
+        insert_audit(
+            &transaction,
+            "receive_transfer",
+            "replenishment_transfer_shipment",
+            &input.shipment_id,
+            Some(serde_json::json!({"status": status, "version": version})),
+            Some(
+                serde_json::json!({"status": shipment_status, "receivedQuantity": received_total, "rejectedQuantity": rejected_total, "reference": input.reference.trim()}),
+            ),
+            &actor.id,
+            &now,
+        )?;
+        transaction.commit()?;
+        drop(connection);
+        self.get_replenishment_request(&request_id)?
+            .transfer_shipments
+            .into_iter()
+            .find(|shipment| shipment.id == input.shipment_id)
+            .ok_or_else(|| AppError::NotFound(input.shipment_id))
     }
 
     fn get_replenishment_request(&self, id: &str) -> AppResult<ReplenishmentRequestView> {
@@ -2688,9 +3151,10 @@ fn apply_quantity_movement(
         "exit" => {
             let from = required_value(&input.from_location_id, "Informe a unidade de origem")?;
             let before = get_balance(transaction, &input.product_id, from)?;
-            if before < quantity {
+            let available = get_available_balance(transaction, &input.product_id, from)?;
+            if available < quantity {
                 return Err(AppError::Validation(format!(
-                    "Saldo insuficiente: disponível {before}, solicitado {quantity}"
+                    "Saldo livre insuficiente: disponível {available}, solicitado {quantity}"
                 )));
             }
             set_balance(transaction, &input.product_id, from, before - quantity, now)?;
@@ -2712,9 +3176,10 @@ fn apply_quantity_movement(
                 ));
             }
             let from_before = get_balance(transaction, &input.product_id, from)?;
-            if from_before < quantity {
+            let available = get_available_balance(transaction, &input.product_id, from)?;
+            if available < quantity {
                 return Err(AppError::Validation(format!(
-                    "Saldo insuficiente: disponível {from_before}, solicitado {quantity}"
+                    "Saldo livre insuficiente: disponível {available}, solicitado {quantity}"
                 )));
             }
             let to_before = get_balance(transaction, &input.product_id, to)?;
@@ -2748,6 +3213,13 @@ fn apply_quantity_movement(
                 .or(input.from_location_id.as_ref())
                 .ok_or_else(|| AppError::Validation("Informe a unidade do ajuste".into()))?;
             let before = get_balance(transaction, &input.product_id, location)?;
+            let reserved =
+                before - get_available_balance(transaction, &input.product_id, location)?;
+            if quantity < reserved {
+                return Err(AppError::Conflict(format!(
+                    "O novo saldo não pode ser menor que as {reserved} unidades reservadas"
+                )));
+            }
             if before == quantity {
                 return Err(AppError::Validation(
                     "O novo saldo é igual ao saldo atual".into(),
@@ -2799,16 +3271,26 @@ fn apply_asset_movement(
         }
         "exit" | "transfer" | "adjustment" => {
             let asset_id = required_value(&input.asset_id, "Selecione o ativo")?;
-            let (location_id, status): (String, String) = transaction
+            let (location_id, status, in_transit): (String, String, Option<String>) = transaction
                 .query_row(
-                    "SELECT location_id, status FROM assets WHERE id = ?1 AND product_id = ?2",
+                    "SELECT location_id, status, in_transit_shipment_id FROM assets WHERE id = ?1 AND product_id = ?2",
                     params![asset_id, input.product_id],
-                    |row| Ok((row.get(0)?, row.get(1)?)),
+                    |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
                 )
                 .optional()?
                 .ok_or_else(|| AppError::NotFound(asset_id.to_owned()))?;
             if status == "disposed" {
                 return Err(AppError::Validation("Este ativo já foi baixado".into()));
+            }
+            let reserved: bool = transaction.query_row(
+                "SELECT EXISTS(SELECT 1 FROM replenishment_transfer_asset_reservations WHERE asset_id = ?1)",
+                [asset_id],
+                |row| row.get(0),
+            )?;
+            if in_transit.is_some() || reserved {
+                return Err(AppError::Conflict(
+                    "O ativo está reservado ou em trânsito por uma reposição".into(),
+                ));
             }
             if input.kind == "transfer" {
                 let to = required_value(&input.to_location_id, "Informe a unidade de destino")?;
@@ -3137,6 +3619,94 @@ fn validate_replenishment_review(input: &ReviewReplenishmentRequestInput) -> App
     Ok(())
 }
 
+fn validate_transfer_dispatch(input: &DispatchReplenishmentTransferInput) -> AppResult<()> {
+    if input.items.is_empty() || input.items.len() > 200 {
+        return Err(AppError::Validation(
+            "O despacho deve conter entre 1 e 200 itens".into(),
+        ));
+    }
+    if input.reference.trim().is_empty() || input.reference.chars().count() > 120 {
+        return Err(AppError::Validation(
+            "Informe uma referência de despacho com até 120 caracteres".into(),
+        ));
+    }
+    if input.note.chars().count() > 1000 {
+        return Err(AppError::Validation(
+            "A observação do despacho deve ter até 1000 caracteres".into(),
+        ));
+    }
+    Ok(())
+}
+
+fn validate_transfer_receipt(input: &ReceiveReplenishmentTransferInput) -> AppResult<()> {
+    if input.items.is_empty() || input.items.len() > 400 {
+        return Err(AppError::Validation(
+            "O recebimento deve conter entre 1 e 400 linhas".into(),
+        ));
+    }
+    if input.reference.trim().is_empty() || input.reference.chars().count() > 120 {
+        return Err(AppError::Validation(
+            "Informe uma referência de recebimento com até 120 caracteres".into(),
+        ));
+    }
+    if input.note.chars().count() > 1000 {
+        return Err(AppError::Validation(
+            "A observação do recebimento deve ter até 1000 caracteres".into(),
+        ));
+    }
+    Ok(())
+}
+
+fn refresh_replenishment_progress(
+    transaction: &Transaction<'_>,
+    request_id: &str,
+    now: &str,
+) -> AppResult<()> {
+    transaction.execute(
+        "UPDATE replenishment_request_items
+         SET status = CASE
+           WHEN approved_quantity = 0 THEN 'rejected'
+           WHEN received_quantity = purchase_quantity
+             AND transfer_received_quantity = transfer_quantity THEN 'fulfilled'
+           WHEN received_quantity > 0 OR transfer_received_quantity > 0
+             OR transfer_in_transit_quantity > 0 OR transfer_rejected_quantity > 0 THEN 'in_fulfillment'
+           WHEN approved_quantity = requested_quantity THEN 'approved'
+           ELSE 'partially_approved'
+         END
+         WHERE request_id = ?1",
+        [request_id],
+    )?;
+    let (requested, approved, unfinished, progress): (i64, i64, i64, i64) = transaction.query_row(
+        "SELECT COALESCE(SUM(requested_quantity), 0),
+                COALESCE(SUM(approved_quantity), 0),
+                SUM(CASE WHEN approved_quantity > 0 AND status <> 'fulfilled' THEN 1 ELSE 0 END),
+                SUM(CASE WHEN received_quantity > 0 OR transfer_received_quantity > 0
+                          OR transfer_in_transit_quantity > 0 OR transfer_rejected_quantity > 0
+                         THEN 1 ELSE 0 END)
+         FROM replenishment_request_items WHERE request_id = ?1",
+        [request_id],
+        |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
+    )?;
+    let status = if approved == 0 {
+        "rejected"
+    } else if unfinished == 0 {
+        "fulfilled"
+    } else if progress > 0 {
+        "in_fulfillment"
+    } else if approved == requested {
+        "approved"
+    } else {
+        "partially_approved"
+    };
+    transaction.execute(
+        "UPDATE replenishment_requests
+         SET status = ?2, fulfilled_at = CASE WHEN ?2 = 'fulfilled' THEN ?3 ELSE NULL END,
+             version = version + 1 WHERE id = ?1",
+        params![request_id, status, now],
+    )?;
+    Ok(())
+}
+
 fn get_replenishment_request_with_connection(
     connection: &Connection,
     id: &str,
@@ -3172,6 +3742,7 @@ fn get_replenishment_request_with_connection(
                     fulfilled_at: row.get(13)?,
                     version: row.get(14)?,
                     items: Vec::new(),
+                    transfer_shipments: Vec::new(),
                 })
             },
         )
@@ -3183,7 +3754,9 @@ fn get_replenishment_request_with_connection(
             rri.requested_quantity, rri.stock_snapshot, rri.approved_quantity,
             rri.transfer_quantity, rri.purchase_quantity, rri.source_location_id,
             source.name, rri.purchase_reference, rri.status, rri.version,
-            rri.received_quantity, p.serial_number_policy
+            rri.received_quantity, p.serial_number_policy,
+            rri.transfer_received_quantity, rri.transfer_in_transit_quantity,
+            rri.transfer_rejected_quantity
          FROM replenishment_request_items rri
          JOIN products p ON p.id = rri.product_id
          LEFT JOIN locations source ON source.id = rri.source_location_id
@@ -3205,15 +3778,115 @@ fn get_replenishment_request_with_connection(
                 transfer_quantity: row.get(8)?,
                 purchase_quantity: row.get(9)?,
                 received_quantity: row.get(15)?,
+                transfer_received_quantity: row.get(17)?,
+                transfer_in_transit_quantity: row.get(18)?,
+                transfer_rejected_quantity: row.get(19)?,
                 source_location_id: row.get(10)?,
                 source_location: row.get(11)?,
                 purchase_reference: row.get(12)?,
                 status: row.get(13)?,
                 version: row.get(14)?,
+                reserved_assets: Vec::new(),
             })
         })?
         .collect::<Result<Vec<_>, _>>()?;
+    for item in &mut request.items {
+        let mut reservations = connection.prepare(
+            "SELECT a.id, a.asset_tag, a.serial_number
+             FROM replenishment_transfer_asset_reservations rtar
+             JOIN assets a ON a.id = rtar.asset_id
+             WHERE rtar.request_item_id = ?1
+             ORDER BY a.asset_tag COLLATE NOCASE",
+        )?;
+        item.reserved_assets = reservations
+            .query_map([&item.id], |row| {
+                Ok(ReservedTransferAssetView {
+                    id: row.get(0)?,
+                    asset_tag: row.get(1)?,
+                    serial_number: row.get(2)?,
+                })
+            })?
+            .collect::<Result<Vec<_>, _>>()?;
+    }
+    request.transfer_shipments = list_transfer_shipments_with_connection(connection, id)?;
     Ok(request)
+}
+
+fn list_transfer_shipments_with_connection(
+    connection: &Connection,
+    request_id: &str,
+) -> AppResult<Vec<ReplenishmentTransferShipmentView>> {
+    let mut statement = connection.prepare(
+        "SELECT rts.id, rts.request_id, rts.source_location_id, source.name,
+                rts.destination_location_id, destination.name, rts.reference,
+                rts.dispatch_note, rts.receipt_reference, rts.receipt_note, rts.status,
+                dispatcher.display_name, receiver.display_name, rts.dispatched_at,
+                rts.received_at, rts.version
+         FROM replenishment_transfer_shipments rts
+         JOIN locations source ON source.id = rts.source_location_id
+         JOIN locations destination ON destination.id = rts.destination_location_id
+         JOIN users dispatcher ON dispatcher.id = rts.dispatched_by
+         LEFT JOIN users receiver ON receiver.id = rts.received_by
+         WHERE rts.request_id = ?1
+         ORDER BY rts.dispatched_at DESC",
+    )?;
+    let mut shipments = statement
+        .query_map([request_id], |row| {
+            Ok(ReplenishmentTransferShipmentView {
+                id: row.get(0)?,
+                request_id: row.get(1)?,
+                source_location_id: row.get(2)?,
+                source_location: row.get(3)?,
+                destination_location_id: row.get(4)?,
+                destination_location: row.get(5)?,
+                reference: row.get(6)?,
+                dispatch_note: row.get(7)?,
+                receipt_reference: row.get(8)?,
+                receipt_note: row.get(9)?,
+                status: row.get(10)?,
+                dispatcher: row.get(11)?,
+                receiver: row.get(12)?,
+                dispatched_at: row.get(13)?,
+                received_at: row.get(14)?,
+                version: row.get(15)?,
+                items: Vec::new(),
+            })
+        })?
+        .collect::<Result<Vec<_>, _>>()?;
+    drop(statement);
+    for shipment in &mut shipments {
+        let mut items = connection.prepare(
+            "SELECT rtsi.id, rtsi.request_item_id, rtsi.product_id, p.name, p.sku,
+                    p.tracking_type, rtsi.asset_id, a.asset_tag, a.serial_number,
+                    rtsi.quantity, rtsi.received_quantity, rtsi.rejected_quantity,
+                    rtsi.receipt_note
+             FROM replenishment_transfer_shipment_items rtsi
+             JOIN products p ON p.id = rtsi.product_id
+             LEFT JOIN assets a ON a.id = rtsi.asset_id
+             WHERE rtsi.shipment_id = ?1
+             ORDER BY p.name COLLATE NOCASE, a.asset_tag COLLATE NOCASE",
+        )?;
+        shipment.items = items
+            .query_map([&shipment.id], |row| {
+                Ok(ReplenishmentTransferShipmentItemView {
+                    id: row.get(0)?,
+                    request_item_id: row.get(1)?,
+                    product_id: row.get(2)?,
+                    product_name: row.get(3)?,
+                    sku: row.get(4)?,
+                    tracking_type: row.get(5)?,
+                    asset_id: row.get(6)?,
+                    asset_tag: row.get(7)?,
+                    serial_number: row.get(8)?,
+                    quantity: row.get(9)?,
+                    received_quantity: row.get(10)?,
+                    rejected_quantity: row.get(11)?,
+                    receipt_note: row.get(12)?,
+                })
+            })?
+            .collect::<Result<Vec<_>, _>>()?;
+    }
+    Ok(shipments)
 }
 
 fn validate_adjustment_request(input: &CreateAdjustmentRequestInput) -> AppResult<()> {
@@ -3304,6 +3977,22 @@ fn get_balance(
     Ok(transaction
         .query_row(
             "SELECT quantity FROM stock_balances WHERE product_id = ?1 AND location_id = ?2",
+            params![product_id, location_id],
+            |row| row.get(0),
+        )
+        .optional()?
+        .unwrap_or(0))
+}
+
+fn get_available_balance(
+    transaction: &Transaction<'_>,
+    product_id: &str,
+    location_id: &str,
+) -> AppResult<i64> {
+    ensure_location(transaction, location_id)?;
+    Ok(transaction
+        .query_row(
+            "SELECT quantity - reserved_quantity FROM stock_balances WHERE product_id = ?1 AND location_id = ?2",
             params![product_id, location_id],
             |row| row.get(0),
         )
@@ -4860,6 +5549,302 @@ mod tests {
             )
             .expect("reserved stock");
         assert_eq!(reserved, 1);
+    }
+
+    #[test]
+    fn dispatches_receives_and_retries_divergent_quantity_transfer() {
+        let database = Database::open(PathBuf::from(":memory:")).expect("database");
+        let operator_id = "123e4567-e89b-42d3-a456-426614174131";
+        let manager_id = "123e4567-e89b-42d3-a456-426614174132";
+        insert_test_user(&database, operator_id, "operador.destino", "operator");
+        insert_test_user(&database, manager_id, "gestor.origem", "manager");
+        let operator = AuthenticatedUser {
+            id: operator_id.into(),
+            username: "operador.destino".into(),
+            display_name: "Operador destino".into(),
+            role: UserRole::Operator,
+        };
+        let manager = AuthenticatedUser {
+            id: manager_id.into(),
+            username: "gestor.origem".into(),
+            display_name: "Gestor origem".into(),
+            role: UserRole::Manager,
+        };
+        let product = database
+            .list_items("")
+            .expect("products")
+            .into_iter()
+            .find(|item| item.tracking_type == "quantity" && item.quantity >= 2)
+            .expect("quantity stock");
+        let locations = database.list_locations().expect("locations");
+        let source = locations.iter().find(|location| database.connection.lock().query_row(
+            "SELECT COALESCE((SELECT quantity FROM stock_balances WHERE product_id = ?1 AND location_id = ?2), 0)",
+            params![product.id, location.id], |row| row.get::<_, i64>(0)).unwrap_or(0) >= 2).expect("source").id.clone();
+        let destination = locations
+            .iter()
+            .find(|location| location.id != source)
+            .expect("destination")
+            .id
+            .clone();
+        let source_before = database
+            .connection
+            .lock()
+            .query_row(
+                "SELECT quantity FROM stock_balances WHERE product_id = ?1 AND location_id = ?2",
+                params![product.id, source],
+                |row| row.get::<_, i64>(0),
+            )
+            .expect("source balance");
+        let destination_before = database.connection.lock().query_row(
+            "SELECT COALESCE((SELECT quantity FROM stock_balances WHERE product_id = ?1 AND location_id = ?2), 0)",
+            params![product.id, destination], |row| row.get::<_, i64>(0)).expect("destination balance");
+        let request = database
+            .create_replenishment_request(
+                CreateReplenishmentRequestInput {
+                    destination_location_id: destination.clone(),
+                    priority: "high".into(),
+                    justification: "Reposição por transferência com confirmação no destino".into(),
+                    items: vec![crate::models::CreateReplenishmentItemInput {
+                        product_id: product.id.clone(),
+                        quantity: 2,
+                    }],
+                },
+                &operator,
+            )
+            .expect("request");
+        let reviewed = database
+            .review_replenishment_request(
+                ReviewReplenishmentRequestInput {
+                    id: request.id.clone(),
+                    note: "Transferência integral autorizada com saldo reservado".into(),
+                    version: request.version,
+                    items: vec![crate::models::ReplenishmentDecisionItemInput {
+                        item_id: request.items[0].id.clone(),
+                        transfer_quantity: 2,
+                        purchase_quantity: 0,
+                        source_location_id: Some(source.clone()),
+                        purchase_reference: None,
+                    }],
+                },
+                &manager,
+            )
+            .expect("review");
+        let first_dispatch = database
+            .dispatch_replenishment_transfer(
+                DispatchReplenishmentTransferInput {
+                    request_id: request.id.clone(),
+                    reference: "GUIA-001".into(),
+                    note: "Despacho inicial".into(),
+                    items: vec![crate::models::DispatchReplenishmentTransferItemInput {
+                        request_item_id: reviewed.items[0].id.clone(),
+                        quantity: 2,
+                        asset_ids: vec![],
+                    }],
+                },
+                &manager,
+            )
+            .expect("dispatch");
+        assert_eq!(first_dispatch.status, "dispatched");
+        assert_eq!(database.connection.lock().query_row(
+            "SELECT quantity FROM stock_balances WHERE product_id = ?1 AND location_id = ?2",
+            params![product.id, source], |row| row.get::<_, i64>(0)).unwrap(), source_before - 2);
+        assert_eq!(database.connection.lock().query_row(
+            "SELECT COALESCE((SELECT quantity FROM stock_balances WHERE product_id = ?1 AND location_id = ?2), 0)",
+            params![product.id, destination], |row| row.get::<_, i64>(0)).unwrap(), destination_before);
+
+        let divergent = database
+            .receive_replenishment_transfer(
+                ReceiveReplenishmentTransferInput {
+                    shipment_id: first_dispatch.id.clone(),
+                    reference: "REC-001".into(),
+                    note: "Conferência parcial".into(),
+                    version: first_dispatch.version,
+                    items: vec![crate::models::ReceiveReplenishmentTransferItemInput {
+                        shipment_item_id: first_dispatch.items[0].id.clone(),
+                        received_quantity: 1,
+                        rejected_quantity: 1,
+                        note: "Uma unidade chegou avariada".into(),
+                    }],
+                },
+                &operator,
+            )
+            .expect("divergent receipt");
+        assert_eq!(divergent.status, "divergent");
+        let progress = database
+            .get_replenishment_request(&request.id)
+            .expect("progress");
+        assert_eq!(progress.items[0].transfer_received_quantity, 1);
+        assert_eq!(progress.items[0].transfer_rejected_quantity, 1);
+        assert_eq!(progress.items[0].transfer_in_transit_quantity, 0);
+        assert_eq!(progress.status, "in_fulfillment");
+
+        let retry = database
+            .dispatch_replenishment_transfer(
+                DispatchReplenishmentTransferInput {
+                    request_id: request.id.clone(),
+                    reference: "GUIA-002".into(),
+                    note: "Reenvio da unidade recusada".into(),
+                    items: vec![crate::models::DispatchReplenishmentTransferItemInput {
+                        request_item_id: progress.items[0].id.clone(),
+                        quantity: 1,
+                        asset_ids: vec![],
+                    }],
+                },
+                &manager,
+            )
+            .expect("retry dispatch");
+        database
+            .receive_replenishment_transfer(
+                ReceiveReplenishmentTransferInput {
+                    shipment_id: retry.id.clone(),
+                    reference: "REC-002".into(),
+                    note: "Reposição conferida".into(),
+                    version: retry.version,
+                    items: vec![crate::models::ReceiveReplenishmentTransferItemInput {
+                        shipment_item_id: retry.items[0].id.clone(),
+                        received_quantity: 1,
+                        rejected_quantity: 0,
+                        note: String::new(),
+                    }],
+                },
+                &operator,
+            )
+            .expect("retry receipt");
+        let completed = database
+            .get_replenishment_request(&request.id)
+            .expect("completed");
+        assert_eq!(completed.items[0].transfer_received_quantity, 2);
+        assert_eq!(completed.status, "fulfilled");
+        assert_eq!(database.connection.lock().query_row(
+            "SELECT quantity FROM stock_balances WHERE product_id = ?1 AND location_id = ?2",
+            params![product.id, destination], |row| row.get::<_, i64>(0)).unwrap(), destination_before + 2);
+    }
+
+    #[test]
+    fn reserves_dispatches_and_receives_a_specific_serialized_asset() {
+        let database = Database::open(PathBuf::from(":memory:")).expect("database");
+        let operator_id = "123e4567-e89b-42d3-a456-426614174141";
+        let manager_id = "123e4567-e89b-42d3-a456-426614174142";
+        insert_test_user(&database, operator_id, "operador.patrimonio", "operator");
+        insert_test_user(&database, manager_id, "gestor.patrimonio", "manager");
+        let operator = AuthenticatedUser {
+            id: operator_id.into(),
+            username: "operador.patrimonio".into(),
+            display_name: "Operador patrimônio".into(),
+            role: UserRole::Operator,
+        };
+        let manager = AuthenticatedUser {
+            id: manager_id.into(),
+            username: "gestor.patrimonio".into(),
+            display_name: "Gestor patrimônio".into(),
+            role: UserRole::Manager,
+        };
+        let asset = database
+            .list_asset_records(AssetFilterInput {
+                search: "NB-0014".into(),
+                location_id: None,
+                status: Some("available".into()),
+            })
+            .unwrap()
+            .remove(0);
+        let destination = database
+            .list_locations()
+            .unwrap()
+            .into_iter()
+            .find(|location| location.id != asset.location_id)
+            .unwrap();
+        let request = database
+            .create_replenishment_request(
+                CreateReplenishmentRequestInput {
+                    destination_location_id: destination.id.clone(),
+                    priority: "normal".into(),
+                    justification: "Transferência patrimonial necessária para a unidade".into(),
+                    items: vec![crate::models::CreateReplenishmentItemInput {
+                        product_id: asset.product_id.clone(),
+                        quantity: 1,
+                    }],
+                },
+                &operator,
+            )
+            .unwrap();
+        let reviewed = database
+            .review_replenishment_request(
+                ReviewReplenishmentRequestInput {
+                    id: request.id.clone(),
+                    note: "Patrimônio disponível reservado automaticamente".into(),
+                    version: request.version,
+                    items: vec![crate::models::ReplenishmentDecisionItemInput {
+                        item_id: request.items[0].id.clone(),
+                        transfer_quantity: 1,
+                        purchase_quantity: 0,
+                        source_location_id: Some(asset.location_id.clone()),
+                        purchase_reference: None,
+                    }],
+                },
+                &manager,
+            )
+            .unwrap();
+        assert_eq!(reviewed.items[0].reserved_assets[0].id, asset.id);
+        let shipment = database
+            .dispatch_replenishment_transfer(
+                DispatchReplenishmentTransferInput {
+                    request_id: request.id.clone(),
+                    reference: "GUIA-PAT-01".into(),
+                    note: "Ativo lacrado para transporte".into(),
+                    items: vec![crate::models::DispatchReplenishmentTransferItemInput {
+                        request_item_id: reviewed.items[0].id.clone(),
+                        quantity: 1,
+                        asset_ids: vec![asset.id.clone()],
+                    }],
+                },
+                &manager,
+            )
+            .unwrap();
+        let in_transit: Option<String> = database
+            .connection
+            .lock()
+            .query_row(
+                "SELECT in_transit_shipment_id FROM assets WHERE id = ?1",
+                [&asset.id],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(in_transit.as_deref(), Some(shipment.id.as_str()));
+        database
+            .receive_replenishment_transfer(
+                ReceiveReplenishmentTransferInput {
+                    shipment_id: shipment.id.clone(),
+                    reference: "REC-PAT-01".into(),
+                    note: "Patrimônio e série conferidos".into(),
+                    version: shipment.version,
+                    items: vec![crate::models::ReceiveReplenishmentTransferItemInput {
+                        shipment_item_id: shipment.items[0].id.clone(),
+                        received_quantity: 1,
+                        rejected_quantity: 0,
+                        note: String::new(),
+                    }],
+                },
+                &operator,
+            )
+            .unwrap();
+        let (location, transit): (String, Option<String>) = database
+            .connection
+            .lock()
+            .query_row(
+                "SELECT location_id, in_transit_shipment_id FROM assets WHERE id = ?1",
+                [&asset.id],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .unwrap();
+        assert_eq!(location, destination.id);
+        assert!(transit.is_none());
+        assert_eq!(
+            database
+                .get_replenishment_request(&request.id)
+                .unwrap()
+                .status,
+            "fulfilled"
+        );
     }
 
     #[test]

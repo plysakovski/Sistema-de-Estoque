@@ -102,7 +102,7 @@ function AuthenticatedAppShell({ user, onLogout, logoutBusy }: { user: Authentic
         <nav aria-label="Navegação principal">
           {visibleNavigation.map(({ id, label, icon: IconComponent }) => <button key={id} className={page === id ? "active" : ""} onClick={() => navigateTo(id)} title={sidebarOpen ? undefined : label}><IconComponent aria-hidden="true" /><span>{label}</span></button>)}
         </nav>
-        <div className="sidebar-status"><code>C:\STOCKMANAGER_PRO&gt;</code><span><i /> online</span><small>v1.8.1</small></div>
+        <div className="sidebar-status"><code>C:\STOCKMANAGER_PRO&gt;</code><span><i /> online</span><small>v1.9.0</small></div>
         <button className="collapse-button" onClick={() => setSidebarOpen((current) => !current)} aria-label={sidebarOpen ? "Recolher menu" : "Expandir menu"}>{sidebarOpen ? <ChevronLeft /> : <Menu />}<span>{sidebarOpen ? "Recolher" : "Expandir"}</span></button>
       </aside>
       <div className="main-column">

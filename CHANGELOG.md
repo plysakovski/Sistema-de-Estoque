@@ -4,6 +4,21 @@ As mudanças relevantes deste projeto são registradas neste arquivo. O formato 
 
 ## Não publicado
 
+## 1.9.0 - 2026-09-03
+
+### Adicionado
+
+- Transferência de reposição em duas etapas, com despacho na origem e confirmação no destino.
+- Recebimento parcial, recusa por divergência e reenvio do saldo recusado.
+- Reserva automática e seleção individual de patrimônios serializados.
+- Progresso separado para compra, transferência recebida e itens em trânsito.
+
+### Segurança
+
+- Bloqueio de movimentações comuns sobre saldo reservado, patrimônio reservado ou ativo em trânsito.
+- Autorização por papel e unidade aplicada separadamente no despacho e no recebimento.
+- Auditoria com documento, responsáveis, quantidades aceitas/recusadas e identificador imutável do despacho.
+
 ### Alterado
 
 - Repositório reorganizado em aplicativo desktop, documentação e protótipo legado.
