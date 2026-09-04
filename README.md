@@ -9,7 +9,7 @@
 </p>
 
 <p align="center">
-  <img alt="Versão" src="https://img.shields.io/badge/vers%C3%A3o-1.8.1-63d975?style=flat-square">
+  <img alt="Versão" src="https://img.shields.io/badge/vers%C3%A3o-1.9.0-63d975?style=flat-square">
   <img alt="Tauri 2" src="https://img.shields.io/badge/Tauri-2-24c8db?style=flat-square&logo=tauri&logoColor=white">
   <img alt="TypeScript" src="https://img.shields.io/badge/TypeScript-React-3178c6?style=flat-square&logo=typescript&logoColor=white">
   <img alt="Rust" src="https://img.shields.io/badge/Rust-SQLite-b7410e?style=flat-square&logo=rust&logoColor=white">
@@ -22,7 +22,7 @@
 
 O StockManager Pro é um aplicativo desktop para Windows que controla produtos por quantidade e equipamentos individualizados por patrimônio e número de série. A interface React/TypeScript conversa somente com o núcleo Tauri/Rust, onde ficam autenticação, autorização, regras de negócio, transações, auditoria e acesso ao banco SQLite local criptografado.
 
-O projeto está em desenvolvimento ativo. A versão 1.8.1 é adequada para demonstração técnica e homologação controlada; distribuição institucional ainda depende dos itens indicados em [Estado do projeto](docs/PROJECT_STATUS.md), especialmente assinatura Authenticode e endurecimento operacional.
+O projeto está em desenvolvimento ativo. A versão 1.9.0 é adequada para demonstração técnica e homologação controlada; distribuição institucional ainda depende dos itens indicados em [Estado do projeto](docs/PROJECT_STATUS.md), especialmente assinatura Authenticode e endurecimento operacional.
 
 ## Capacidades atuais
 
@@ -119,7 +119,7 @@ O instalador NSIS é criado em `apps/desktop/src-tauri/target/release/bundle/nsi
 - [Guia do código](docs/GUIA_DO_CODIGO.md)
 - [Desenvolvimento](docs/DEVELOPMENT.md)
 - [Design system](docs/DESIGN_SYSTEM.md)
-- [Revisão de segurança 1.8.1](docs/security/SECURITY_REVIEW_1.8.1.md)
+- [Revisão de segurança 1.9.0](docs/security/SECURITY_REVIEW_1.9.0.md)
 - [Estado e próximos passos](docs/PROJECT_STATUS.md)
 
 ## Protótipo legado

@@ -7,7 +7,7 @@ interface AuditDetailsDialogProps {
   onClose(): void;
 }
 
-const actionLabels: Record<string, string> = { create: "Criação", update: "Alteração", activate: "Ativação", deactivate: "Desativação", entry: "Entrada", exit: "Saída", transfer: "Transferência", adjustment: "Ajuste" };
+const actionLabels: Record<string, string> = { create: "Criação", update: "Alteração", activate: "Ativação", deactivate: "Desativação", entry: "Entrada", exit: "Saída", transfer: "Transferência", adjustment: "Ajuste", dispatch_transfer: "Despacho de transferência", receive_transfer: "Recebimento de transferência" };
 
 export function AuditDetailsDialog({ log, onClose }: AuditDetailsDialogProps) {
   if (!log) return null;

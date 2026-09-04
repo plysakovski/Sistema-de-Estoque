@@ -2,7 +2,7 @@
 
 ## Versão atual
 
-**1.8.1 — demonstração técnica e homologação controlada.**
+**1.9.0 — demonstração técnica e homologação controlada.**
 
 O fluxo principal de estoque, ativos, solicitações, recebimento, autenticação e auditoria está funcional. Isso não equivale ainda a uma liberação institucional: alguns controles dependem do ambiente de implantação e precisam ser concluídos antes de operar dados sensíveis em produção.
 
@@ -10,6 +10,8 @@ O fluxo principal de estoque, ativos, solicitações, recebimento, autenticaçã
 
 - Catálogo híbrido e saldos por unidade.
 - Movimentações em lote e recebimento vinculado à reposição.
+- Transferências aprovadas com despacho, trânsito, recebimento parcial e divergência.
+- Reserva individual de patrimônios serializados antes do despacho.
 - Individualização por patrimônio, série e lote.
 - Perfis operador, gestor e administrador com escopo por unidade.
 - Ajustes e reposições com decisão segregada e auditoria.
@@ -32,7 +34,6 @@ O fluxo principal de estoque, ativos, solicitações, recebimento, autenticaçã
 
 ### Prioridade alta — regras de negócio
 
-- Implementar transferência aprovada em duas etapas: despacho na origem e recebimento no destino.
 - Concluir cancelamento administrativo de reposições com justificativa e auditoria.
 - Criar políticas configuráveis para patrimônio e número de série por categoria/produto.
 - Adicionar inventário físico e conciliação formal de divergências.

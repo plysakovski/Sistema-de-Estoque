@@ -415,6 +415,90 @@ pub struct ReviewReplenishmentRequestInput {
     pub items: Vec<ReplenishmentDecisionItemInput>,
 }
 
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DispatchReplenishmentTransferItemInput {
+    pub request_item_id: String,
+    pub quantity: i64,
+    pub asset_ids: Vec<String>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DispatchReplenishmentTransferInput {
+    pub request_id: String,
+    pub reference: String,
+    pub note: String,
+    pub items: Vec<DispatchReplenishmentTransferItemInput>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ReceiveReplenishmentTransferItemInput {
+    pub shipment_item_id: String,
+    pub received_quantity: i64,
+    pub rejected_quantity: i64,
+    pub note: String,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ReceiveReplenishmentTransferInput {
+    pub shipment_id: String,
+    pub reference: String,
+    pub note: String,
+    pub version: i64,
+    pub items: Vec<ReceiveReplenishmentTransferItemInput>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ReservedTransferAssetView {
+    pub id: String,
+    pub asset_tag: String,
+    pub serial_number: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ReplenishmentTransferShipmentItemView {
+    pub id: String,
+    pub request_item_id: String,
+    pub product_id: String,
+    pub product_name: String,
+    pub sku: String,
+    pub tracking_type: String,
+    pub asset_id: Option<String>,
+    pub asset_tag: Option<String>,
+    pub serial_number: Option<String>,
+    pub quantity: i64,
+    pub received_quantity: i64,
+    pub rejected_quantity: i64,
+    pub receipt_note: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ReplenishmentTransferShipmentView {
+    pub id: String,
+    pub request_id: String,
+    pub source_location_id: String,
+    pub source_location: String,
+    pub destination_location_id: String,
+    pub destination_location: String,
+    pub reference: String,
+    pub dispatch_note: String,
+    pub receipt_reference: Option<String>,
+    pub receipt_note: Option<String>,
+    pub status: String,
+    pub dispatcher: String,
+    pub receiver: Option<String>,
+    pub dispatched_at: String,
+    pub received_at: Option<String>,
+    pub version: i64,
+    pub items: Vec<ReplenishmentTransferShipmentItemView>,
+}
+
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ReplenishmentRequestItemView {
@@ -430,11 +514,15 @@ pub struct ReplenishmentRequestItemView {
     pub transfer_quantity: i64,
     pub purchase_quantity: i64,
     pub received_quantity: i64,
+    pub transfer_received_quantity: i64,
+    pub transfer_in_transit_quantity: i64,
+    pub transfer_rejected_quantity: i64,
     pub source_location_id: Option<String>,
     pub source_location: Option<String>,
     pub purchase_reference: Option<String>,
     pub status: String,
     pub version: i64,
+    pub reserved_assets: Vec<ReservedTransferAssetView>,
 }
 
 #[derive(Debug, Serialize)]
@@ -456,6 +544,7 @@ pub struct ReplenishmentRequestView {
     pub fulfilled_at: Option<String>,
     pub version: i64,
     pub items: Vec<ReplenishmentRequestItemView>,
+    pub transfer_shipments: Vec<ReplenishmentTransferShipmentView>,
 }
 
 #[derive(Debug, Serialize)]

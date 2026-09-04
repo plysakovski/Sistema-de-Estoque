@@ -22,4 +22,4 @@ O recebimento será confirmado em até 5 dias úteis. A correção, a divulgaç�
 
 Autenticação, autorização por unidade, criptografia, importação de arquivos, backup/restauração, comandos Tauri, SQL, auditoria e atualização do aplicativo são considerados superfícies críticas.
 
-Consulte a [política técnica](docs/SECURITY.md) e a [revisão da versão 1.8.1](docs/security/SECURITY_REVIEW_1.8.1.md).
+Consulte a [política técnica](docs/SECURITY.md) e a [revisão da versão 1.9.0](docs/security/SECURITY_REVIEW_1.9.0.md).

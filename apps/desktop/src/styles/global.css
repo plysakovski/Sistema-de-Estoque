@@ -143,6 +143,7 @@ tbody tr:hover { background: rgba(99, 212, 113, .035); }
 .tracking--quantity { color: var(--green); background: var(--green-soft); }
 .tracking--serialized { color: var(--blue); background: rgba(88, 166, 255, .08); }
 .table-subline { display: block; margin-top: 3px; color: var(--muted); font: 10px "Cascadia Code", Consolas, monospace; }
+.request-actions { display: flex; min-width: 170px; flex-wrap: wrap; gap: 6px; }
 .statusbar { min-width: 0; display: flex; align-items: center; gap: 22px; padding: 0 15px; border-top: 1px solid var(--border); color: var(--faint); font: 10px "Cascadia Code", Consolas, monospace; overflow: hidden; white-space: nowrap; }
 .statusbar code { color: var(--green); }
 .statusbar strong { margin-left: auto; display: flex; align-items: center; gap: 7px; color: var(--muted); font-weight: 400; }
@@ -278,6 +279,9 @@ tbody tr:hover { background: rgba(99, 212, 113, .035); }
 .receipt-summary { display: grid; gap: 4px; margin-bottom: 16px; padding: 12px 14px; border: 1px solid rgba(100, 221, 124, 0.35); border-radius: 8px; background: rgba(100, 221, 124, 0.06); }
 .receipt-summary strong { color: var(--green); font-size: 13px; }
 .receipt-summary span { color: var(--muted); font-size: 12px; }
+.transfer-assets { display: grid; gap: 8px; }
+.check-row { display: flex !important; align-items: center; gap: 8px !important; padding: 8px 10px; border: 1px solid var(--border); border-radius: 6px; background: #0b0e0c; }
+.check-row input { width: 16px !important; height: 16px !important; }
 .receipt-toggle { display: inline-flex; align-items: center; gap: 8px; margin-bottom: 12px; color: var(--text); font-size: 12px; cursor: pointer; }
 .receipt-toggle input { width: 16px; height: 16px; accent-color: var(--green); }
 .receipt-product { display: grid; gap: 6px; min-height: 58px; padding: 10px 11px; border: 1px solid var(--border); border-radius: 7px; background: #0b0e0c; }

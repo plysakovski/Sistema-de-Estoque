@@ -45,7 +45,9 @@ Corrige um dado que deveria representar a realidade atual. Exige descrição, so
 
 Atende uma necessidade futura de uma unidade. Um pedido contém uma justificativa, prioridade e um ou mais produtos do catálogo. O saldo observado na abertura é preservado como fotografia histórica.
 
-O gestor pode dividir cada item entre transferência e compra. A quantidade aprovada nunca pode exceder a solicitada. Transferências de produtos por quantidade reservam o saldo na origem durante a decisão, impedindo dupla promessa.
+O gestor pode dividir cada item entre transferência e compra. A quantidade aprovada nunca pode exceder a solicitada. Transferências reservam o saldo ou os patrimônios específicos na origem durante a decisão, impedindo dupla promessa.
+
+Uma transferência aprovada ocorre em duas etapas. Um gestor da origem despacha itens reservados e o sistema os marca como `em trânsito`, sem creditar o destino. Um operador, gestor ou administrador vinculado ao destino confere o despacho e informa quantidades recebidas e recusadas. A recusa exige justificativa, devolve o item à reserva da origem e permite novo despacho. Recebimentos parciais preservam o saldo restante em trânsito.
 
 ### Movimentação
 
@@ -77,9 +79,11 @@ O operador informa o ativo, a pessoa que o devolveu e a descrição do problema.
 - `fulfilled`: todos os itens aprovados foram recebidos.
 - `cancelled`: cancelamento administrativo com justificativa.
 
-Na versão 1.8.0, compras aprovadas podem ser recebidas em lote e os ativos serializados são individualizados por patrimônio e série. O despacho e recebimento em duas etapas para transferências aprovadas permanece como evolução posterior.
+Na versão 1.8.0, compras aprovadas podem ser recebidas em lote e os ativos serializados são individualizados por patrimônio e série.
 
 Na versão 1.8.1, o recebimento vinculado a uma reposição deixa de ser uma movimentação livre. A tela é preenchida somente com os produtos aprovados ainda pendentes, bloqueia a troca ou inclusão de produtos externos e exige referência da compra. Produtos serializados geram uma linha por unidade; entregas parciais são registradas desmarcando explicitamente as unidades ainda não recebidas.
+
+Na versão 1.9.0, transferências aprovadas ganham despacho e recebimento independentes. O saldo quantitativo sai da origem no despacho e chega ao destino somente na conferência. Ativos patrimoniais são reservados e transportados por identificador individual. Documento, origem, destino, responsáveis, aceite, recusa e motivo da divergência permanecem auditáveis.
 
 ## Regras invariantes
 
@@ -88,5 +92,7 @@ Na versão 1.8.1, o recebimento vinculado a uma reposição deixa de ser uma mov
 - Estoque disponível é o saldo físico menos a quantidade reservada.
 - Compra aprovada não aumenta o estoque antes do recebimento.
 - Transferência aprovada não credita o destino antes do recebimento.
+- Saldo ou ativo reservado não pode ser consumido por movimentação comum.
+- Um ativo em trânsito só pode ser alterado pelo recebimento do despacho correspondente.
 - Toda decisão relevante registra identificadores, responsável, data e dados anteriores/posteriores na auditoria.
 - Administradores não precisam de vínculos individuais porque seu escopo é global; operadores e gestores precisam de pelo menos uma unidade ativa.
